@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/4a9b499f-2301-49f5-9a60-5521b5c35fca" alt="Description" width="1200">
+  <img src="https://github.com/user-attachments/assets/4a9b499f-2301-49f5-9a60-5521b5c35fca" alt="Description" width="600">
 </p>
 
 # PowerShell-Suspicious-Web-Request
